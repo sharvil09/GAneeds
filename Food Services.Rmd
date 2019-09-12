@@ -1,0 +1,118 @@
+---
+title: "Food Services"
+author: "Sharvil Patel"
+date: "9/12/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE}
+library(GISTools)
+library(ggplot2)
+library(dplyr)
+library(rvest)
+library(ggmap)
+library(stringr)
+library(revgeo)
+library(tidyr)
+library(leaflet)
+```
+
+Load Food Desert List
+```{r}
+subregion = c('Appling','Atkinson','Bacon','Baker','Baldwin','Banks','Barrow','Bartow','Ben Hill','Berrien','Bibb','Bleckley','Brantley','Brooks','Bryan','Bulloch','Burke','Butts','Calhoun','Camden','Candler','Carroll','Catoosa','Charlton','Chatham','Chattahoochee','Chattooga','Cherokee','Clarke','Clay','Clayton','Clinch','Cobb','Coffee','Colquitt','Columbia','Cook','Coweta','Crawford','Crisp','Dade','Dawson','Decatur','DeKalb','Dodge','Dooly','Dougherty','Douglas','Early','Echols','Effingham','Elbert','Emanuel','Evans','Fannin','Fayette','Floyd','Forsyth','Franklin','Fulton','Gilmer','Glascock','Glynn','Gordon','Grady','Greene','Gwinnett','Habersham','Hall','Hancock','Haralson','Harris','Hart','Heard','Henry','Houston','Irwin','Jackson','Jasper','Jeff Davis','Jefferson','Jenkins','Johnson','Jones','Lamar','Lanier','Laurens','Lee','Liberty','Lincoln','Long','Lowndes','Lumpkin','McDuffie','McIntosh','Macon','Madison','Marion','Meriwether','Miller','Mitchell','Monroe','Montgomery','Morgan','Murray','Muscogee','Newton','Oconee','Oglethorpe','Paulding','Peach','Pickens','Pierce','Pike','Polk','Pulaski','Putnam','Quitman','Rabun','Randolph','Richmond','Rockdale','Schley','Screven','Seminole','Spalding','Stephens','Stewart','Sumter','Talbot','Taliaferro','Tattnall','Taylor','Telfair','Terrell','Thomas','Tift','Toombs','Towns','Treutlen','Troup','Turner','Twiggs','Union','Upson','Walker','Walton','Ware','Warren','Washington','Wayne','Webster','Wheeler','White','Whitfield','Wilcox','Wilkes','Wilkinson','Worth')
+foodinsec = c(14.3,12.8,13.2,16.5,22.6,10.3,10.5,11.8,22.7,15.5,23.1,17.5,13.2,17.5,11.5,21,22.4,16.1,23.8,13.8,17.2,14.8,9.9,14.8,17.6,16.4,14.9,7.7,21.6,28.4,22.7,20.2,11.7,16.4,14.7,9.8,17.3,11.1,15,22.8,11.1,9.3,20.5,19.2,18.2,19.8,26.9,15.8,23.3,11.1,10.4,16.4,20.7,16.6,11.4,9.1,14.1,5.5,15,17.8,10.6,12,15.5,11.8,18.3,17.4,10.5,10.1,8.3,25.8,13.6,9.8,14.9,13.7,14.5,15.4,18.8,9.6,14.4,13.4,23.1,20.4,18.6,12.7,17.6,18.2,20.6,11.9,17.8,18.1,13.4,19.5,13.1,20.9,16.5,25.3,11.7,19.5,19.9,18.3,21.9,13,16.9,12.8,11.5,20.4,17.1,7.3,13.2,10.4,18.7,9,12.7,10.5,13,18.6,15,21.2,12.4,25.7,22.8,17.1,16.8,20.5,17.4,18.8,14.2,22.2,24.7,19.5,24,17.1,20.8,20.3,25.8,18.7,17.9,18.1,11.2,17.4,18,20,21.8,9.6,17.8,12.8,11.9,19.1,23.2,21.5,15.8,20.3,22.2,11.9,8.4,17.7,20.1,17.6,16.1)
+state = c("Georgia")
+food <- data.frame(subregion, foodinsec, state)
+food$status <- food$foodinsec
+food$status[food$foodinsec < 12.5] <- "Food Oasis"
+food$status[food$foodinsec > 12.5] <- "Food Desert"
+food$status <- factor(food$status)
+food$subregion <- tolower(food$subregion)
+food$subregion <- factor(food$subregion)
+```
+
+
+# Scrape Food Pantries in Atlanta
+```{r, message=FALSE}
+url <- "http://211online.unitedwayatlanta.org/MatchList.aspx?c;;0;;N;0;3133948;Clothing/Food/Personal%20Goods/Services;Food/Meal%20Services;24;Food%20Pantries~"
+webpage <- read_html(url)
+  # Names
+name <- html_nodes(webpage,'.ml_name')
+name_data <- html_text(name)
+name_data <- as.factor(name_data)
+head(name_data)
+  # Address
+add <- html_nodes(webpage,'.ml_address')
+add_data <- html_text(add)
+add_data <- as.factor(add_data)
+head(add_data)
+  # Create Food Pantries DF
+foodpant <- data.frame("Name" = name_data, "Address" = add_data)
+foodpant$Address <- as.character(foodpant$Address)
+geo <- geocode(foodpant$Address,source="dsk")
+foodpant$lat <- geo$lat
+foodpant$lon <- geo$lon
+    # Remove SC pantries
+rows <- c(3,4,5,82,168,248)
+foodpant <- foodpant[-c(rows),]
+```
+
+
+# Create Map
+```{r}
+county <- map_data("county")
+gacounty <- county[county$region == "georgia",]
+gacounty$subregion <- gsub("de kalb","dekalb",gacounty$subregion)
+gacounty$subregion <- factor(gacounty$subregion)
+gacountyfull <- left_join(gacounty,food,by="subregion")
+
+ggdisc <- ggplot(gacountyfull, aes(x=long, y=lat, group=group))+
+  geom_polygon(aes(fill = status), color = "white")+
+  scale_fill_viridis_c(option = "C") + 
+  viridis::scale_fill_viridis(discrete = TRUE) +
+  labs(title = "Food Deserts' Relation to Food Services",
+       fill = "Food Desert Status")
+ggdisc <- ggdisc + geom_point(data=foodpant, aes(x=lon, y=lat,color=(c("Food Pantries"))), inherit.aes = FALSE) + labs(color = "Legend") + theme(legend.position="right")
+ggdisc
+```
+
+```{r}
+ggcont <- ggplot(gacountyfull, aes(x=long, y=lat, group=group)) + geom_polygon(aes(fill = foodinsec), color = "white") + scale_fill_viridis_c(option = "B") + labs(title = "Food Insecurity and Food Pantry", fill = "Percent Food Insecurity")
+ggcont <- ggcont + geom_point(data=foodpant, aes(x=lon, y=lat,color="Food Pantry"), inherit.aes = FALSE) + labs(color = "Legend") + theme(legend.position="bottom")
+ggcont
+```
+
+  # Defining ATL
+```{r}
+gacountyfull$counties <- factor(gacountyfull$subregion)
+gacountyfull$counties <- factor(gacountyfull$counties)
+
+atlcount <- gacountyfull %>% filter(subregion=="fulton"|subregion=="dekalb"|subregion == "gwinnett"|
+                          subregion == "cobb"|subregion == "clayton"|subregion == "coweta"|
+                          subregion == "douglas"|subregion == "fayette"|subregion == "henry")
+atlfood <- foodpant
+atlfood <- atlfood %>% filter(atlfood$lon > min(atlcount$long),
+                              atlfood$lon < max(atlcount$long),
+                              atlfood$lat > min(atlcount$lat),
+                              atlfood$lat < max(atlcount$lat))
+
+atlcont <- ggplot(atlcount, aes(x=long, y=lat, group=group)) +
+  geom_polygon(aes(fill = foodinsec), color = "white")+
+  scale_fill_viridis_c(option = "C") + 
+  labs(title = "Food Pantry Distribution in Metro Atlanta",
+       fill = "Percent Food 
+       Insecurity")
+atlcont <- atlcont + geom_point(data=atlfood, aes(x=lon, y=lat,color=(c("Food Pantries"))),
+                                inherit.aes = FALSE) + labs(color = "Legend",x="Longitude",y="Latitude") + theme(legend.position="right")
+atlcont <- atlcont + theme(axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank(),
+        panel.grid=element_blank()) + theme_minimal()
+atlcont
+```
+
